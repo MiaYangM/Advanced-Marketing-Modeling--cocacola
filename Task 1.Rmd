@@ -1,0 +1,353 @@
+---
+title: "TASK1- Soft Drink Sales Analysis: Coca-Cola vs. Pepsi"
+author: "Meng 640815, Glib"
+date: "2025-11-06"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    keep_tex: false
+geometry: margin=1in
+fontsize: 12pt
+linestretch: 1.15
+header-includes:
+  - \usepackage{times}     # Times New Roman
+  - \usepackage{fancyhdr} # Header and Footer
+  - \pagestyle{fancy}
+  - \fancyhf{}             
+  - \fancyhead[C]{Meng Yang\ 640815\ |\ Glib\ 2021123457} # head
+  - \fancyfoot[C]{\thepage} # foot- pages center
+  - \renewcommand{\headrulewidth}{0pt}
+  - \renewcommand{\footrulewidth}{0pt}
+subparagraph: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width  = 6.5,
+  fig.height = 3.5,
+  fig.align  = "center",
+  dev.args   = list(pointsize = 10),   # 图内文字 10pt
+  out.extra  = "keepaspectratio")
+
+
+library(data.table) 
+library(tidyverse)
+library(lubridate)
+library(skimr)
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(scales)
+
+```
+
+
+## 1. Introduction
+The purpose of this analysis is to investigate and interpret market performance indicators for two major beverage producers—Coca-Cola and PepsiCo—from 2024 to 2026 using scanner-based retail data. 
+
+The report focuses on understanding how quantities sold, package type, sweetener type, average prices, product varieties,  promotional activities and seasonal trends evolved across time influencing Revenue in two different markets- PITTSFIELD and EAU CLAIRE. Through detailed graphical and numerical exploration, the goal is to identify structural differences in brand performance, assess the interplay between volume and price strategies, and derive insights into the effectiveness of promotional efforts and regional market dynamics.
+
+
+##2. Data Overview
+### 2.1. Key Variables in Data (showing example rows)
+```{r data overview}
+
+### data overview and cleaning
+raw_path <- "cola.coke.pepsi.csv"
+
+df_raw <- read_csv(
+  raw_path,
+  locale = locale(decimal_mark = ".", grouping_mark = ","),
+  guess_max = 200000
+)
+
+#cols <- names(df_raw) 
+
+#meta <- rbindlist(
+# lapply(cols, function(v) {
+#   x <- df_raw[[v]]
+ #   data.table(
+  #    column    = v,
+   #   type      = class(x)[1],
+    #  N_unique  = uniqueN(x),
+     # N_missing = sum(is.na(x) | x == ""),
+      #top_5     = paste(head(sort(table(x), decreasing = TRUE), 5) |> names(),
+       #                 collapse = ", ")
+   # )
+  #})
+#)
+#print(meta)
+# View(df_row)
+
+df_clean <- df_raw %>% 
+  select(YEAR, WEEK, MARKET,IRI_KEY, PACKAGE, TYPE.OF.SWEETENER,
+         liter, DOLLARS, price, price.per.liter,
+         display.minor, display.major,
+         feature.small, feature.medium, feature.large, coupon,
+         L4, L5) %>%           
+   ## rename
+  rename(
+    Brand        = L4,
+    variety      = L5,
+    liter_sum    = liter,
+    revenue      = DOLLARS
+  )
+#############################################################
+## format the week
+
+df_clean <- df_clean %>% 
+  mutate(
+    week_end = as.Date("1989-12-30") + 7 * (WEEK - 1),   
+    Month    = month(week_end, label = TRUE),            # Jan, Feb, …
+    Quarter  = quarter(week_end, with_year = FALSE),
+    
+    Month_num = match(Month, month.abb),                     # 1-12
+    Quarter_f = factor(Quarter, levels = 1:4, labels = paste0("Q", 1:4)) # 1, 2, 3, 4
+  )
+
+
+df_clean <- df_clean %>%    # drop week
+  select(-WEEK)
+
+#View(df_clean)
+#names(df_clean) 
+```
+
+The dataset contains weekly sales data for Coca-Cola and PepsiCo products across various markets. Key variables in data frame showing in example below:
+```{r variable-table}
+variable_names <- data.frame(
+  Variable = names(df_clean)
+)
+
+knitr::kable(
+  head(df_clean, n = 5), 
+  caption = "Example of First 5 Rows of Dataframe (cleaned) "
+)
+```
+### 2.2. Market Performance Overview
+
+### 2.2.1 Overall Market Size and Brand Comparison annually
+By overview it is obversly that Coca-Cola consistently outperforms PepsiCo in both revenue and volume sold from 2024 to 2026. The gap between the two brands appears to widen over the years, indicating Coca-Cola's stronger market presence and consumer preference during this period.
+
+```{r barplot, fig.width=10, fig.height=4.5, dpi=300}
+## Market size##
+market_size <- df_clean %>%
+  # filter(Brand %in% c("COKE", "PEPSI")) %>%
+  group_by(YEAR, Brand) %>%
+  summarise(
+    LiterSold = sum(liter_sum, na.rm = TRUE),
+    Revenue = sum(revenue, na.rm = TRUE),
+    .groups   = "drop"
+  ) %>%
+  ungroup()
+
+#print(df)
+
+
+plot_dat <- market_size %>% 
+  pivot_longer(cols = c(LiterSold, Revenue),
+               names_to = "metric",
+               values_to = "value")
+
+ggplot(plot_dat,
+       aes(x = factor(YEAR),
+           y = value,
+           fill = Brand)) +
+  geom_col(position = "dodge", width = 0.4, alpha = 0.9) +
+  geom_text(aes(label = scales::comma(value, accuracy = 1),
+                group = Brand),
+            position = position_dodge(.4),
+            vjust = -0.6, size = 2) +
+  scale_fill_manual(values = c("COCA COLA CO" = "#F40009",
+                               "PEPSICO INC"  = "#1c52a2")) +
+  scale_y_continuous(labels = comma) +
+  facet_wrap(~metric, scales = "free_y", ncol = 2) +
+  labs(title = "Coca Cola vs Pepsi - Annual Revenue and Volume Sold",
+       x = NULL, y = NULL,
+       fill = "Brand") +
+  theme_minimal(base_size = 15) +
+  theme(
+    legend.position = "bottom",
+    axis.text.y     = element_text(size = 10),   # Y 轴刻度字号缩小
+    strip.text      = element_text(size = 13, face = "bold")
+  )
+
+```
+#### 2.2.2 The Performence in difference cities:(PITTSFIELD and EAU CLAIRE):
+
+```{r city-performance, fig.width=10, fig.height=4.5, dpi=300}
+city_performance <- df_clean %>%
+  group_by(MARKET, Brand) %>%
+  summarise(
+    LiterSold = sum(liter_sum, na.rm = TRUE),
+    Revenue = sum(revenue, na.rm = TRUE),
+    .groups   = "drop"
+  ) %>%
+  ungroup()
+
+plot_city <- city_performance %>% 
+  pivot_longer(c(LiterSold, Revenue),
+               names_to  = "metric",
+               values_to = "value")
+
+ggplot(plot_city,
+       aes(x = reorder(MARKET, value, FUN = sum),  # 城市按总量排序
+           y = value,
+           fill = Brand)) +
+  geom_col(position = "dodge", width = 0.5, alpha = 0.9) +
+  geom_text(aes(label = comma(value, accuracy = 1),
+                group = Brand),
+            position = position_dodge(0.5),
+            vjust    = -1.2,
+            size     = 3) +
+  scale_fill_manual(values = c("COCA COLA CO" = "#F40009",
+                               "PEPSICO INC"  = "#1c52a2")) +
+  scale_y_continuous(labels = comma,
+                     expand = expansion(mult = c(0, 0.12))) +  # 顶部留空
+  facet_wrap(~metric, ncol = 2, scales = "free") +              # 左右两张
+  labs(title = "City Performance: Revenue & Volume by Brand",
+       x = NULL, y = NULL, fill = "Brand") +
+  theme_minimal(base_size = 15) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x     = element_text(angle = 45, hjust = 1, size = 9),
+    axis.text.y     = element_text(size = 9),
+    strip.text      = element_text(size = 13, face = "bold")
+  )
+  
+
+```
+Based on the above analysis, Coca-Cola demonstrates a stronger market performance compared to PepsiCo in EAU CLAIRE but no diiference in PITTSDILED. Coca-Cola leads in both revenue and volume sold, indicating a more robust consumer preference and market penetration in EAU CLAIRE.
+#### 2.2.3 Summary
+
+Overall, the dataset represents approximately 18 million liters sold, generating about Revenue $12.9 million in total revenue over the observation period. The average price per liter is approximately $2.83, with moderate variability across brands and product types. Promotional variables are mostly zero-valued, indicating that active promotions occur infrequently but may have a strong impact when they do.
+
+Further we would explore more insights from different dimensions such as package type, sweetener type, promotional activities, and seasonal trends to understand the factors driving the performance of these two brands.
+
+
+## 3. Factors Affecting Sales Performance
+### 3.1 Factor overview
+To better understand the sales dynamics of Coca-Cola and PepsiCo, we will analyze the impact of various factors such as package type, sweetener type, promotional activities, and seasonal trends on their sales performance.
+
+The following analysis aims to dissect the contributions of various factors to the sales performance of Coca-Cola and PepsiCo. Specifically, we will investigate:
+
+- how much would factors like variaties, pacage type, sweetener type, promotion, season contribute to each brand?
+- is there any interaction effect between Brand × Factor?
+- which segment combinations (e.g., "large package + aspartame + summer + promotion") drive excess growth?
+
+####3.2 Variety Overview
+
+####3.2.1 Revenue Share by Variety within Each Brand
+```{r variety-pie, fig.width=8, fig.height=6, dpi=300}
+
+# names(df_clean) test which name in df clean
+brand_variety <- df_clean %>%
+  group_by(Brand, variety) %>%               # ① 先按品牌+品种
+  summarise(Revenue = sum(revenue, na.rm = TRUE), .groups = "drop") %>%
+  group_by(Brand) %>%                        # ② 再按品牌算占比
+  mutate(pct = Revenue / sum(Revenue))
+
+
+# percentage within brand
+
+ggplot(brand_variety, aes(x = "", y = pct, fill = reorder(variety, pct))) +
+  geom_col(width = 1, color = "white",size = .25) +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = paste0(variety, "\n", percent(pct, accuracy = 0.1))),
+            position = position_stack(vjust = 0.3),
+            size = 2, color = "black", nudge_y = 10) + # nudge and vjust to push out labe text
+  coord_polar(theta = "y") +
+  facet_wrap(~Brand, ncol = 2) +
+  scale_fill_brewer(palette = "Paired") +
+  labs(title = "Revenue Share by Variety within Each Brand",
+       x = NULL, y = NULL, fill = "Variety") +
+  theme_void(base_size = 12) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(size = 13, face = "bold",
+                              margin = margin(b = 10)),  # margin between title and pie
+    panel.spacing = unit(10, "pt"),     # horitontal space between pie
+    strip.text  = element_text(size = 11),
+    plot.margin = margin(1, 1, 1, 1, "pt")  # squeeze the space- margin
+  )
+  
+
+```
+From above we can see that most customers prefer classic varieties (with coffeine) in both Brands. 
+
+#### 3.2.2 Package Type Analysis
+
+
+````{r package preference with avg price, fig.width=10, fig.height=4.5, dpi=300}
+
+qpkg_price <- df_clean %>%
+  mutate(Quarter = quarter(week_end, with_year = FALSE),
+         YearQ   = paste(YEAR, paste0("Q", Quarter), sep = "-")) %>%
+  group_by(YearQ, Brand, PACKAGE) %>%
+  summarise(
+    Revenue = sum(revenue, na.rm = TRUE),
+    AvgPrice = weighted.mean(price.per.liter, liter_sum, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(YearQ = forcats::fct_inorder(YearQ))
+
+txt_dat <- qpkg_price %>%
+  group_by(YearQ, Brand) %>%
+  summarise(total_rev = sum(Revenue, na.rm = TRUE), .groups = "drop")
+
+
+ggplot(qpkg_price,
+       aes(x = YearQ)) +
+  geom_col(aes(y = Revenue, fill = reorder(PACKAGE, Revenue, sum)),
+           width = 0.6, color = "white", size = .2) +
+  geom_line(aes(y = AvgPrice * 1e6,            
+                colour = reorder(PACKAGE, Revenue, sum),
+                group = PACKAGE),
+            size = 1.2, alpha = 0.9) +
+  geom_point(aes(y = AvgPrice * 1e6,
+                 colour = reorder(PACKAGE, Revenue, sum)),
+             size = 2.5) +
+  geom_text(data = txt_dat,
+            aes(y = total_rev,
+                label = sprintf("$%.1fM", total_rev / 1e6)),
+            vjust = -1.2, size = 2.8) +
+  scale_fill_brewer(palette = "Set2", name = "Package") +
+  scale_colour_brewer(palette = "Set2", name = "Package") +
+  scale_y_continuous(
+    labels = label_dollar(scale = 1e-6, suffix = "M"),
+    expand = expansion(mult = c(0, 0.12))
+  ) +
+  scale_y_continuous(
+    name = "Revenue ($M)",
+    sec.axis = sec_axis(~ . / 2e6, name = "Avg Price ($/L)"),
+    expand = expansion(mult = c(0, 0.12))
+  ) +
+
+  facet_wrap(~Brand, ncol = 2) +
+  labs(title = "Quarterly Revenue vs. Average Price by Package",
+       subtitle = "Stacked bars = Revenue; lines = weighted avg price per liter",
+       x = NULL) +
+  theme_minimal(base_size = 16) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 9),
+    axis.title.y.right = element_text(color = "grey30", size = 8),
+    strip.text = element_text(size = 8, face = "bold")
+  )
+
+````
+From the above analysis, it is evident that bottle packages consistently generate higher revenue compared to cans and glass bottles for both Coca-Cola and PepsiCo. This trend suggests a consumer preference for bottle packaging, which may be attributed to factors such as convenience, portion size, and perceived value. Both brands should consider focusing their marketing and distribution efforts on bottle packages to capitalize on this preference and potentially boost overall sales performance.
+
+
+````{r clean up}
+object.size(df_clean) |> print(units = "MB")
+
+````
+
+
+
+
+
